@@ -1,0 +1,817 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  PitWall - F1 lap telemetry analyzer. Custom VPC, EC2 (API + worker), RDS PostgreSQL,
+  S3 + CloudFront, SQS job queue with DLQ, SNS notifications, scheduled Lambda,
+  SSM parameters, CloudWatch logs/alarms/dashboard and a cost budget.
+  Sized for the AWS Free Tier: no NAT Gateway, Single-AZ RDS, t3.micro instances.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: pitwall
+    AllowedPattern: "[a-z][a-z0-9-]{2,20}"
+  AlertEmail:
+    Type: String
+    Description: Receives CloudWatch alarm and budget emails (confirm the SNS subscription email).
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t3.micro, t3.small, t2.micro]
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues: [db.t3.micro, db.t4g.micro]
+  DBEngineVersion:
+    Type: String
+    Default: "17.11"
+    Description: PostgreSQL version (scripts/deploy.sh passes the region's current default 17.x).
+  MonthlyBudgetUSD:
+    Type: Number
+    Default: 5
+  CloudFrontPrefixListId:
+    Type: String
+    Description: ID of the com.amazonaws.global.cloudfront.origin-facing managed prefix list in this region (scripts/deploy.sh looks it up).
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+Conditions:
+  IsUsEast1: !Equals [!Ref "AWS::Region", us-east-1]
+
+Resources:
+  # ------------------------------------------------------------------ Networking
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-vpc" }]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-igw" }]
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.20.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-public-a" }]
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.20.11.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-private-a" }]
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.20.12.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-private-b" }]
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-public-rt" }]
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetARouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  # No route to the internet at all: the database subnets are private.
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-private-rt" }]
+
+  PrivateSubnetARouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetBRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+  # Free gateway endpoint: EC2 <-> S3 traffic stays on the AWS network.
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      VpcEndpointType: Gateway
+      RouteTableIds: [!Ref PublicRouteTable]
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: PitWall API - HTTP from CloudFront edge servers only. No SSH (use SSM Session Manager).
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourcePrefixListId: !Ref CloudFrontPrefixListId
+          Description: CloudFront origin-facing
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS to AWS APIs, OpenF1 and package repos
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: Package repos
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 10.20.0.0/16
+          Description: PostgreSQL inside the VPC
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-app-sg" }]
+
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: PitWall RDS - PostgreSQL from the app instance only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref AppSecurityGroup
+          Description: App instance
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-db-sg" }]
+
+  # ------------------------------------------------------------------ Storage
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectName}-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-telemetry-cache
+            Prefix: telemetry/
+            Status: Enabled
+            ExpirationInDays: 180
+          - Id: expire-db-backups
+            Prefix: backups/
+            Status: Enabled
+            ExpirationInDays: 30
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref Bucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CloudFrontReadsSiteAndReportsOnly
+            Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: s3:GetObject
+            Resource:
+              - !Sub "${Bucket.Arn}/frontend/*"
+              - !Sub "${Bucket.Arn}/reports/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt Bucket.Arn, !Sub "${Bucket.Arn}/*"]
+            Condition: { Bool: { aws:SecureTransport: "false" } }
+
+  # ------------------------------------------------------------------ CDN
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${ProjectName}-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub "${ProjectName} site, reports and API"
+        Enabled: true
+        HttpVersion: http2and3
+        PriceClass: PriceClass_200
+        DefaultRootObject: index.html
+        Origins:
+          - Id: site
+            DomainName: !GetAtt Bucket.RegionalDomainName
+            OriginPath: /frontend
+            OriginAccessControlId: !Ref OriginAccessControl
+            S3OriginConfig: { OriginAccessIdentity: "" }
+          - Id: reports
+            DomainName: !GetAtt Bucket.RegionalDomainName
+            OriginAccessControlId: !Ref OriginAccessControl
+            S3OriginConfig: { OriginAccessIdentity: "" }
+          - Id: api
+            DomainName: !If
+              - IsUsEast1
+              - !Sub ["ec2-${Ip}.compute-1.amazonaws.com", { Ip: !Join ["-", !Split [".", !Ref ElasticIp]] }]
+              - !Sub ["ec2-${Ip}.${AWS::Region}.compute.amazonaws.com", { Ip: !Join ["-", !Split [".", !Ref ElasticIp]] }]
+            CustomOriginConfig:
+              HTTPPort: 80
+              OriginProtocolPolicy: http-only
+              OriginReadTimeout: 30
+        DefaultCacheBehavior:
+          TargetOriginId: site
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            Compress: true
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # Managed-CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # Managed-AllViewerExceptHostHeader
+          - PathPattern: /reports/*
+            TargetOriginId: reports
+            ViewerProtocolPolicy: redirect-to-https
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+
+  # ------------------------------------------------------------------ Messaging
+  JobsDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${ProjectName}-jobs-dlq"
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  JobsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${ProjectName}-jobs"
+      VisibilityTimeout: 600
+      ReceiveMessageWaitTimeSeconds: 20
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt JobsDeadLetterQueue.Arn
+        maxReceiveCount: 3 # keep in sync with MAX_ATTEMPTS in pitwall/worker/main.py
+
+  UserNotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${ProjectName}-user-notifications"
+      DisplayName: PitWall
+
+  OpsAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${ProjectName}-ops-alerts"
+      DisplayName: PitWall alerts
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlertEmail
+
+  # ------------------------------------------------------------------ Database
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: PitWall private subnets
+      SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub "${ProjectName}-db"
+      Engine: postgres
+      EngineVersion: !Ref DBEngineVersion
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: "20"
+      StorageType: gp2
+      StorageEncrypted: true
+      DBName: pitwall
+      MasterUsername: pitwall
+      MasterUserPassword: !Sub "{{resolve:ssm-secure:/${ProjectName}/db/password}}"
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups: [!Ref DbSecurityGroup]
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: 1
+      AutoMinorVersionUpgrade: true
+      DeletionProtection: false
+
+  # ------------------------------------------------------------------ Configuration (Parameter Store)
+  # SecureString parameters (db/password, jwt_secret) are created by scripts/deploy.sh,
+  # because CloudFormation can only create plain String parameters.
+  ParamDbHost:
+    Type: AWS::SSM::Parameter
+    Properties: { Name: !Sub "/${ProjectName}/db/host", Type: String, Value: !GetAtt Database.Endpoint.Address }
+  ParamDbName:
+    Type: AWS::SSM::Parameter
+    Properties: { Name: !Sub "/${ProjectName}/db/name", Type: String, Value: pitwall }
+  ParamDbUser:
+    Type: AWS::SSM::Parameter
+    Properties: { Name: !Sub "/${ProjectName}/db/user", Type: String, Value: pitwall }
+  ParamBucket:
+    Type: AWS::SSM::Parameter
+    Properties: { Name: !Sub "/${ProjectName}/s3_bucket", Type: String, Value: !Ref Bucket }
+  ParamQueue:
+    Type: AWS::SSM::Parameter
+    Properties: { Name: !Sub "/${ProjectName}/sqs_queue_url", Type: String, Value: !Ref JobsQueue }
+  ParamTopic:
+    Type: AWS::SSM::Parameter
+    Properties: { Name: !Sub "/${ProjectName}/sns_topic_arn", Type: String, Value: !Ref UserNotificationsTopic }
+  ParamPublicUrl:
+    Type: AWS::SSM::Parameter
+    Properties: { Name: !Sub "/${ProjectName}/public_url", Type: String, Value: !Sub "https://${Distribution.DomainName}" }
+  ParamRegion:
+    Type: AWS::SSM::Parameter
+    Properties: { Name: !Sub "/${ProjectName}/aws_region", Type: String, Value: !Ref "AWS::Region" }
+
+  # ------------------------------------------------------------------ Compute
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-ec2-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore # Session Manager + Run Command (deploys), so no SSH port
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy # ship logs and memory/disk metrics
+      Policies:
+        - PolicyName: pitwall-app
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ProjectBucketObjects
+                Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub "${Bucket.Arn}/*"
+              - Sid: ProjectBucketList
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt Bucket.Arn
+              - Sid: JobQueue
+                Effect: Allow
+                Action: [sqs:SendMessage, sqs:ReceiveMessage, sqs:DeleteMessage, sqs:ChangeMessageVisibility, sqs:GetQueueAttributes]
+                Resource: !GetAtt JobsQueue.Arn
+              - Sid: UserNotifications
+                Effect: Allow
+                Action: [sns:Publish, sns:Subscribe]
+                Resource: !Ref UserNotificationsTopic
+              - Sid: ReadOwnParameters
+                Effect: Allow
+                Action: [ssm:GetParametersByPath, ssm:GetParameter, ssm:GetParameters]
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/*"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  AppInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: PublicDefaultRoute
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref PublicSubnetA
+      SecurityGroupIds: [!Ref AppSecurityGroup]
+      IamInstanceProfile: !Ref InstanceProfile
+      MetadataOptions: { HttpTokens: required, HttpEndpoint: enabled }
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: { VolumeSize: 16, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true }
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-app" }]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # First-boot setup. Application code is shipped later by scripts/deploy.sh,
+          # which uploads a release to S3 and runs /opt/pitwall/deploy.sh via SSM Run Command.
+          set -euxo pipefail
+          dnf install -y python3.11 python3.11-pip amazon-cloudwatch-agent logrotate
+
+          # t3.micro has 1 GiB RAM; swap keeps the worker safe while it renders PDFs.
+          if [ ! -f /swapfile ]; then
+            dd if=/dev/zero of=/swapfile bs=1M count=1536
+            chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+            echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
+          fi
+
+          id pitwall || useradd --system --home-dir /opt/pitwall --shell /sbin/nologin pitwall
+          mkdir -p /opt/pitwall/releases /var/log/pitwall
+          chown -R pitwall:pitwall /opt/pitwall /var/log/pitwall
+
+          # Only pointers live on disk; every value and secret is read from Parameter Store at startup.
+          printf 'SSM_PREFIX=/${ProjectName}\nAWS_REGION=${AWS::Region}\n' > /etc/pitwall.env
+
+          cat > /etc/systemd/system/pitwall-api.service <<'UNIT'
+          [Unit]
+          Description=PitWall API (FastAPI)
+          After=network-online.target
+          [Service]
+          User=pitwall
+          EnvironmentFile=/etc/pitwall.env
+          WorkingDirectory=/opt/pitwall/current
+          ExecStart=/opt/pitwall/venv/bin/uvicorn pitwall.api.main:app --host 0.0.0.0 --port 80 --workers 2 --proxy-headers --forwarded-allow-ips=*
+          AmbientCapabilities=CAP_NET_BIND_SERVICE
+          Restart=always
+          RestartSec=3
+          StandardOutput=append:/var/log/pitwall/api.log
+          StandardError=append:/var/log/pitwall/api.log
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+
+          cat > /etc/systemd/system/pitwall-worker.service <<'UNIT'
+          [Unit]
+          Description=PitWall SQS worker
+          After=network-online.target
+          [Service]
+          User=pitwall
+          EnvironmentFile=/etc/pitwall.env
+          WorkingDirectory=/opt/pitwall/current
+          ExecStart=/opt/pitwall/venv/bin/python -m pitwall.worker.main
+          Environment=MPLCONFIGDIR=/tmp/pitwall-mpl
+          MemoryMax=700M
+          Restart=always
+          RestartSec=5
+          StandardOutput=append:/var/log/pitwall/worker.log
+          StandardError=append:/var/log/pitwall/worker.log
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+
+          cat > /etc/logrotate.d/pitwall <<'ROT'
+          /var/log/pitwall/*.log {
+            daily
+            rotate 3
+            compress
+            missingok
+            copytruncate
+          }
+          ROT
+
+          cat > /opt/pitwall/deploy.sh <<'DEPLOY'
+          #!/bin/bash
+          # Install the release at s3://<bucket>/releases/backend.tgz and restart the services.
+          set -euo pipefail
+          BUCKET=${Bucket}
+          RELEASE=/opt/pitwall/releases/$(date +%Y%m%d%H%M%S)
+          mkdir -p "$RELEASE"
+          aws s3 cp "s3://$BUCKET/releases/backend.tgz" /tmp/backend.tgz --only-show-errors
+          tar -xzf /tmp/backend.tgz -C "$RELEASE"
+          [ -x /opt/pitwall/venv/bin/python ] || python3.11 -m venv /opt/pitwall/venv
+          /opt/pitwall/venv/bin/pip install --quiet --upgrade pip
+          /opt/pitwall/venv/bin/pip install --quiet -r "$RELEASE/requirements.txt"
+          ln -sfn "$RELEASE" /opt/pitwall/current
+          chown -R pitwall:pitwall /opt/pitwall
+          systemctl daemon-reload
+          systemctl enable pitwall-api pitwall-worker
+          systemctl restart pitwall-api pitwall-worker
+          ls -dt /opt/pitwall/releases/* | tail -n +4 | xargs -r rm -rf
+          sleep 3
+          systemctl is-active pitwall-api pitwall-worker
+          DEPLOY
+          chmod 755 /opt/pitwall/deploy.sh
+
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CWA'
+          {
+            "agent": { "metrics_collection_interval": 60 },
+            "metrics": {
+              "namespace": "CWAgent",
+              "append_dimensions": { "InstanceId": "${!aws:InstanceId}" },
+              "metrics_collected": {
+                "mem": { "measurement": ["mem_used_percent"] },
+                "disk": { "measurement": ["used_percent"], "resources": ["/"] },
+                "swap": { "measurement": ["swap_used_percent"] }
+              }
+            },
+            "logs": {
+              "logs_collected": {
+                "files": {
+                  "collect_list": [
+                    { "file_path": "/var/log/pitwall/api.log", "log_group_name": "/${ProjectName}/api", "log_stream_name": "{instance_id}" },
+                    { "file_path": "/var/log/pitwall/worker.log", "log_group_name": "/${ProjectName}/worker", "log_stream_name": "{instance_id}" }
+                  ]
+                }
+              }
+            }
+          }
+          CWA
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s \
+            -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+
+  ElasticIp:
+    Type: AWS::EC2::EIP
+    DependsOn: GatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags: [{ Key: Name, Value: !Sub "${ProjectName}-app-ip" }]
+
+  ElasticIpAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt ElasticIp.AllocationId
+      InstanceId: !Ref AppInstance
+
+  # ------------------------------------------------------------------ Scheduled ingestion (supporting Lambda)
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-scheduler-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: pitwall-scheduler
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: QueueIngestJobs
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt JobsQueue.Arn
+              - Sid: OwnLogs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "${SchedulerLogGroup.Arn}:*"
+
+  SchedulerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ProjectName}-session-scheduler"
+      RetentionInDays: 14
+
+  SchedulerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-session-scheduler"
+      Description: Weekly - finds F1 sessions that finished in the last 8 days and queues them for ingestion.
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt SchedulerRole.Arn
+      Timeout: 60
+      MemorySize: 128
+      LoggingConfig: { LogGroup: !Ref SchedulerLogGroup }
+      Environment:
+        Variables:
+          QUEUE_URL: !Ref JobsQueue
+          LOOKBACK_DAYS: "8"
+      Code:
+        ZipFile: |
+          # Source of truth: lambda/session_scheduler.py (scripts/deploy.sh uploads it).
+          def handler(event, context):
+              raise RuntimeError("placeholder - run scripts/deploy.sh to upload the real code")
+
+  SchedulerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${ProjectName}-weekly-ingest"
+      Description: Every Monday 06:00 UTC, after the race weekend
+      ScheduleExpression: cron(0 6 ? * MON *)
+      State: ENABLED
+      Targets:
+        - Id: scheduler
+          Arn: !GetAtt SchedulerFunction.Arn
+
+  SchedulerInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SchedulerFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SchedulerRule.Arn
+
+  # ------------------------------------------------------------------ Monitoring
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: { LogGroupName: !Sub "/${ProjectName}/api", RetentionInDays: 14 }
+
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: { LogGroupName: !Sub "/${ProjectName}/worker", RetentionInDays: 14 }
+
+  WorkerErrorsMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref WorkerLogGroup
+      FilterPattern: '" ERROR "'
+      MetricTransformations:
+        - { MetricNamespace: PitWall, MetricName: WorkerErrors, MetricValue: "1", DefaultValue: 0 }
+
+  ApiErrorsMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ApiLogGroup
+      FilterPattern: '" ERROR "'
+      MetricTransformations:
+        - { MetricNamespace: PitWall, MetricName: ApiErrors, MetricValue: "1", DefaultValue: 0 }
+
+  ComparisonsMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref WorkerLogGroup
+      FilterPattern: '"Comparison" "done in"'
+      MetricTransformations:
+        - { MetricNamespace: PitWall, MetricName: ComparisonsCompleted, MetricValue: "1", DefaultValue: 0 }
+
+  QueueStuckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${ProjectName}-queue-stuck"
+      AlarmDescription: A job has waited over 10 minutes - the worker is down or stuck.
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions: [{ Name: QueueName, Value: !GetAtt JobsQueue.QueueName }]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 600
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlertsTopic]
+      OKActions: [!Ref OpsAlertsTopic]
+
+  DeadLetterAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${ProjectName}-jobs-dead-lettered"
+      AlarmDescription: A job failed 3 times and was moved to the dead-letter queue.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions: [{ Name: QueueName, Value: !GetAtt JobsDeadLetterQueue.QueueName }]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlertsTopic]
+
+  WorkerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${ProjectName}-worker-errors"
+      AlarmDescription: The worker logged errors in the last 5 minutes.
+      Namespace: PitWall
+      MetricName: WorkerErrors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlertsTopic]
+
+  HighCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${ProjectName}-ec2-high-cpu"
+      AlarmDescription: App instance CPU above 80% for 15 minutes (t3 burst credits draining).
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions: [{ Name: InstanceId, Value: !Ref AppInstance }]
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions: [!Ref OpsAlertsTopic]
+
+  SchedulerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${ProjectName}-scheduler-errors"
+      AlarmDescription: The weekly session scheduler Lambda failed.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{ Name: FunctionName, Value: !Ref SchedulerFunction }]
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref OpsAlertsTopic]
+
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "${ProjectName}"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            { "type": "metric", "x": 0, "y": 0, "width": 8, "height": 6, "properties": {
+              "title": "Comparisons completed / errors", "region": "${AWS::Region}", "stat": "Sum", "period": 300,
+              "metrics": [["PitWall", "ComparisonsCompleted"], ["PitWall", "WorkerErrors"], ["PitWall", "ApiErrors"]] } },
+            { "type": "metric", "x": 8, "y": 0, "width": 8, "height": 6, "properties": {
+              "title": "Job queue", "region": "${AWS::Region}", "period": 60,
+              "metrics": [
+                ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "${JobsQueue.QueueName}", { "stat": "Maximum" }],
+                ["AWS/SQS", "ApproximateAgeOfOldestMessage", "QueueName", "${JobsQueue.QueueName}", { "stat": "Maximum", "yAxis": "right" }],
+                ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "${JobsDeadLetterQueue.QueueName}", { "stat": "Maximum", "label": "Dead-lettered" }]] } },
+            { "type": "metric", "x": 16, "y": 0, "width": 8, "height": 6, "properties": {
+              "title": "EC2 CPU / memory", "region": "${AWS::Region}", "period": 300, "stat": "Average",
+              "metrics": [
+                ["AWS/EC2", "CPUUtilization", "InstanceId", "${AppInstance}"],
+                ["CWAgent", "mem_used_percent", "InstanceId", "${AppInstance}"],
+                ["CWAgent", "swap_used_percent", "InstanceId", "${AppInstance}"]] } },
+            { "type": "metric", "x": 0, "y": 6, "width": 12, "height": 6, "properties": {
+              "title": "RDS", "region": "${AWS::Region}", "period": 300, "stat": "Average",
+              "metrics": [
+                ["AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", "${Database}"],
+                ["AWS/RDS", "DatabaseConnections", "DBInstanceIdentifier", "${Database}", { "yAxis": "right" }]] } },
+            { "type": "log", "x": 12, "y": 6, "width": 12, "height": 6, "properties": {
+              "title": "Recent worker errors", "region": "${AWS::Region}", "view": "table",
+              "query": "SOURCE '/${ProjectName}/worker' | fields @timestamp, @message | filter @message like / ERROR / | sort @timestamp desc | limit 20" } }
+          ]
+        }
+
+  # ------------------------------------------------------------------ Cost control
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Sub "${ProjectName}-monthly"
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: { Amount: !Ref MonthlyBudgetUSD, Unit: USD }
+      NotificationsWithSubscribers:
+        - Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 80, ThresholdType: PERCENTAGE }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
+        - Notification: { NotificationType: FORECASTED, ComparisonOperator: GREATER_THAN, Threshold: 100, ThresholdType: PERCENTAGE }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
+
+Outputs:
+  SiteUrl:
+    Value: !Sub "https://${Distribution.DomainName}"
+  DistributionId:
+    Value: !Ref Distribution
+  BucketName:
+    Value: !Ref Bucket
+  InstanceId:
+    Value: !Ref AppInstance
+  DatabaseId:
+    Value: !Ref Database
+  QueueUrl:
+    Value: !Ref JobsQueue
+  SchedulerFunctionName:
+    Value: !Ref SchedulerFunction
+  DashboardUrl:
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${ProjectName}"

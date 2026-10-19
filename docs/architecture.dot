@@ -1,0 +1,75 @@
+// Render: dot -Tpng -Gdpi=160 docs/architecture.dot -o docs/architecture.png
+digraph pitwall {
+  graph [rankdir=TB, fontname="Helvetica", fontsize=13, bgcolor="white", pad=0.3, nodesep=0.4, ranksep=0.55, newrank=true, compound=true,
+         label="PitWall - AWS architecture", labelloc=t, fontsize=20];
+  node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, fillcolor="#ffffff", color="#5b6270", penwidth=1.2, margin="0.15,0.08"];
+  edge  [fontname="Helvetica", fontsize=9, color="#4a5160", arrowsize=0.7];
+
+  user    [label="Users\n(browser)", shape=box, fillcolor="#eef1f6"];
+  openf1  [label="OpenF1 API\n(public F1 timing data)", fillcolor="#eef1f6", style="rounded,filled,dashed"];
+  email   [label="Email\n(users + developer)", fillcolor="#eef1f6"];
+
+  subgraph cluster_aws {
+    label="AWS Cloud"; style="rounded"; color="#232f3e"; fontcolor="#232f3e"; penwidth=1.6;
+
+    cloudfront [label="Amazon CloudFront\nHTTPS, edge cache\n/ -> S3 frontend/\n/reports/* -> S3 reports/\n/api/* -> EC2", fillcolor="#f3e8fd", color="#8c4fff"];
+    budgets    [label="AWS Budgets\nmonthly cost alert", fillcolor="#e8f6ec", color="#3b9b5b"];
+    cfn        [label="AWS CloudFormation\ninfra/pitwall.yaml\n(provisions everything)", fillcolor="#fde8ef", color="#e7157b"];
+
+    subgraph cluster_region {
+      label="Region (e.g. ap-south-1)"; style="rounded,dashed"; color="#147eba"; fontcolor="#147eba";
+
+      subgraph cluster_vpc {
+        label="Custom VPC 10.20.0.0/16"; style="rounded"; color="#8c4fff"; fontcolor="#8c4fff"; penwidth=1.4;
+        igw [label="Internet\nGateway", fillcolor="#f3e8fd", color="#8c4fff"];
+        s3ep [label="S3 Gateway\nEndpoint (free)", fillcolor="#f3e8fd", color="#8c4fff"];
+
+        subgraph cluster_public {
+          label="Public subnet 10.20.1.0/24 (AZ a) - route 0.0.0.0/0 -> IGW"; style="rounded,filled"; fillcolor="#eaf5ea"; color="#3b9b5b"; fontcolor="#2b7a45";
+          ec2 [label=<<b>Amazon EC2</b> t3.micro + Elastic IP<br/>App SG: port 80 from CloudFront prefix list only<br/><br/>FastAPI REST API (systemd)<br/>SQS worker: telemetry -&gt; charts + PDF<br/>CloudWatch agent>, fillcolor="#fff3e5", color="#ed7100"];
+        }
+        subgraph cluster_private {
+          label="Private subnets 10.20.11.0/24 + 10.20.12.0/24 (AZ a, b) - no internet route"; style="rounded,filled"; fillcolor="#e9f2fb"; color="#147eba"; fontcolor="#147eba";
+          rds [label=<<b>Amazon RDS</b> PostgreSQL<br/>db.t3.micro, Single-AZ, encrypted<br/>DB SG: 5432 from App SG only<br/>users, races, laps, comparisons>, fillcolor="#e9f0fc", color="#3b48cc"];
+        }
+      }
+
+      s3   [label=<<b>Amazon S3</b> (private, OAC)<br/>frontend/  reports/ (PNG, PDF, JSON)<br/>telemetry/ cache   releases/>, fillcolor="#e8f6ec", color="#3b9b5b"];
+      sqs  [label=<<b>Amazon SQS</b><br/>jobs queue + dead-letter queue<br/>(3 attempts)>, fillcolor="#fde8ef", color="#e7157b"];
+      sns  [label=<<b>Amazon SNS</b><br/>user-notifications (per-user filter)<br/>ops-alerts>, fillcolor="#fde8ef", color="#e7157b"];
+      eb   [label="Amazon EventBridge\nweekly rule (Mon 06:00 UTC)", fillcolor="#fde8ef", color="#e7157b"];
+      lambda [label=<<b>AWS Lambda</b><br/>session-scheduler<br/>finds finished sessions>, fillcolor="#fff3e5", color="#ed7100"];
+      ssm  [label=<<b>SSM Parameter Store</b><br/>/pitwall/db/password (SecureString)<br/>/pitwall/jwt_secret (SecureString)<br/>bucket, queue, topic, db host>, fillcolor="#fdecea", color="#dd344c"];
+      iam  [label=<<b>AWS IAM</b><br/>EC2 instance role (least privilege)<br/>Lambda execution role<br/>no access keys in code>, fillcolor="#fdecea", color="#dd344c"];
+      cw   [label=<<b>Amazon CloudWatch</b><br/>log groups /pitwall/api, /pitwall/worker<br/>metric filters, dashboard<br/>5 alarms: queue stuck, DLQ, worker errors,<br/>EC2 CPU, Lambda errors>, fillcolor="#fdecea", color="#e7157b"];
+    }
+  }
+
+  user -> cloudfront [label="1  HTTPS"];
+  cloudfront -> s3 [label="2  site + reports (OAC)"];
+  cloudfront -> igw [label="3  /api/*"];
+  igw -> ec2;
+  ec2 -> rds [label="4  SQL"];
+  ec2 -> sqs [label="5  queue job / poll"];
+  ec2 -> s3ep [label="6  cache + reports"];
+  s3ep -> s3;
+  ec2 -> openf1 [label="7  telemetry (HTTPS)", style=dashed];
+  ec2 -> sns [label="8  report ready"];
+  sns -> email;
+  eb -> lambda [label="weekly"];
+  lambda -> openf1 [style=dashed, label="new sessions?"];
+  lambda -> sqs [label="ingest jobs"];
+  ssm -> ec2 [label="config + secrets at startup", style=dotted];
+  iam -> ec2 [style=dotted, arrowhead=none, label="instance profile"];
+  ec2 -> cw [label="logs + memory/disk"];
+  sqs -> cw [style=dotted, arrowhead=none];
+  cw -> sns [label="alarm"];
+  budgets -> email [label="cost alert", style=dashed];
+
+  // layout hints
+  { rank=same; user; }
+  { rank=same; sqs; sns; s3; }
+  { rank=same; eb; lambda; ssm; iam; }
+  { rank=same; cw; openf1; email; }
+  cfn -> budgets [style=invis];
+}

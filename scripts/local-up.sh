@@ -13,7 +13,7 @@ start() { # name, docker run args...
   echo "started $name"
 }
 
-start pitwall-db -p 5433:5432 -e POSTGRES_USER=pitwall -e POSTGRES_PASSWORD=pitwall -e POSTGRES_DB=pitwall postgres:16-alpine
+start pitwall-db -p 5433:5432 -e POSTGRES_USER=pitwall -e POSTGRES_PASSWORD=pitwall -e POSTGRES_DB=pitwall postgres:17-alpine
 start pitwall-aws -p 5000:5000 motoserver/moto:5.0.24
 
 for _ in $(seq 30); do curl -sf http://localhost:5000/moto-api/ >/dev/null && break; sleep 1; done

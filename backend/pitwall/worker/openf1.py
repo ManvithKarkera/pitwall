@@ -151,6 +151,11 @@ def ingest_session(db: Session, session_key: int) -> RaceSession:
     for n, d in drivers.items():
         r = results.get(n, {})
         status = next((label for label in ("DSQ", "DNS", "DNF") if r.get(label.lower())), "")
+        position = r.get("position")
+        if not isinstance(position, int):
+            # OpenF1 occasionally reports a classification code (e.g. "RT") instead of a number.
+            status = status or (str(position) if position else "")
+            position = int(position) if str(position).isdigit() else None
         colour = d.get("team_colour") or ""
         db.add(SessionResult(
             session_id=rs.id,
@@ -159,7 +164,7 @@ def ingest_session(db: Session, session_key: int) -> RaceSession:
             full_name=d["full_name"].title(),
             team=d.get("team_name") or "",
             team_color="#" + colour if len(colour) == 6 else "#888888",
-            position=r.get("position"),
+            position=position,
             status=status,
             best_lap_ms=_ms(best[n]["lap_duration"]) if n in best else None,
             best_lap_number=best[n]["lap_number"] if n in best else None,
