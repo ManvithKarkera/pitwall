@@ -1,4 +1,4 @@
-"""Pure lap-comparison maths. No AWS, no database, no FastF1, so it is easy to test.
+"""Pure lap-comparison maths. No AWS, no database, no network, so it is easy to test.
 
 A lap's telemetry is a dict of equal-length lists:
     distance (m), time (s from lap start), speed (km/h), throttle (0-100),
