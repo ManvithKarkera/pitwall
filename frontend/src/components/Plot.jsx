@@ -10,7 +10,7 @@ export function baseLayout(extra = {}) {
   return {
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "rgba(0,0,0,0)",
-    font: { family: "Titillium Web, sans-serif", color: css("--text") || "#e8eaef", size: 12 },
+    font: { family: "Titillium Web, sans-serif", color: css("--plot-ink") || "#241914", size: 12 },
     margin: { l: 56, r: 16, t: 8, b: 40 },
     showlegend: false,
     hoverlabel: { font: { family: "JetBrains Mono, monospace", size: 11 } },

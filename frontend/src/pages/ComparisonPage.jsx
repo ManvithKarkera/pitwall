@@ -90,7 +90,7 @@ function TelemetryStack({ data }) {
   const traces = [
     { y: a.speed, name: meta.driver_a, yaxis: "y", line: line(meta.color_a), hovertemplate: hv(" km/h") },
     { y: b.speed, name: meta.driver_b, yaxis: "y", line: line(meta.color_b), hovertemplate: hv(" km/h") },
-    { y: delta, name: "Gap", yaxis: "y2", line: line("#e8eaef", 1.4), fill: "tozeroy", fillcolor: "rgba(232,234,239,0.06)", hovertemplate: `%{y:+.3f}s<extra>gap</extra>` },
+    { y: delta, name: "Gap", yaxis: "y2", line: line("#241914", 1.4), fill: "tozeroy", fillcolor: "rgba(36,25,20,0.07)", hovertemplate: `%{y:+.3f}s<extra>gap</extra>` },
     { y: a.throttle, name: meta.driver_a, yaxis: "y3", line: line(meta.color_a, 1.2), hovertemplate: hv("%") },
     { y: b.throttle, name: meta.driver_b, yaxis: "y3", line: line(meta.color_b, 1.2), hovertemplate: hv("%") },
     { y: a.brake, name: meta.driver_a, yaxis: "y4", line: { ...line(meta.color_a, 1.2), shape: "hv" }, hovertemplate: hv("") },
@@ -102,7 +102,7 @@ function TelemetryStack({ data }) {
   const axis = (title, domain, extra = {}) => ({
     title: { text: title, font: { size: 11 } },
     domain,
-    gridcolor: "rgba(255,255,255,0.06)",
+    gridcolor: "rgba(36,25,20,0.08)",
     zeroline: false,
     ...extra,
   });
@@ -113,9 +113,9 @@ function TelemetryStack({ data }) {
       layout={baseLayout({
         height: 720,
         hovermode: "x unified",
-        xaxis: { title: { text: "Distance (m)" }, gridcolor: "rgba(255,255,255,0.06)", zeroline: false, ticksuffix: " m", anchor: "y5" },
+        xaxis: { title: { text: "Distance (m)" }, gridcolor: "rgba(36,25,20,0.08)", zeroline: false, ticksuffix: " m", anchor: "y5" },
         yaxis: axis("Speed", [0.56, 1]),
-        yaxis2: axis(`Gap (s) · + = ${meta.driver_a} ahead`, [0.38, 0.53], { zeroline: true, zerolinecolor: "rgba(255,255,255,0.25)" }),
+        yaxis2: axis(`Gap (s) · + = ${meta.driver_a} ahead`, [0.38, 0.53], { zeroline: true, zerolinecolor: "rgba(36,25,20,0.3)" }),
         yaxis3: axis("Throttle", [0.22, 0.35], { range: [-5, 105] }),
         yaxis4: axis("Brake", [0.14, 0.2], { showticklabels: false, range: [-0.1, 1.1] }),
         yaxis5: axis("Gear", [0, 0.12], { dtick: 2 }),

@@ -5,6 +5,7 @@ import "@fontsource/titillium-web/400.css";
 import "@fontsource/titillium-web/600.css";
 import "@fontsource/titillium-web/700.css";
 import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource-variable/unbounded/wght.css";
 import "./styles.css";
 import App from "./App.jsx";
 import { AuthProvider } from "./auth.jsx";

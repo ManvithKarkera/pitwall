@@ -55,12 +55,14 @@ export default function Races() {
         <ul className="event-list">
           {events.map((ev) => (
             <li key={ev.id} className="event">
-              <div className="event-round">R{String(ev.round).padStart(2, "0")}</div>
+              <p className="event-round">
+                <span>Round {ev.round}</span>
+                <span className="event-date">{fmtDate(ev.event_date)}</span>
+              </p>
               <div className="event-body">
-                <h2>{ev.name}</h2>
-                <p className="muted">
-                  {ev.location}, {ev.country} · {fmtDate(ev.event_date)}
-                </p>
+                <h2>{ev.country}</h2>
+                <p>{ev.name}</p>
+                <p className="muted">{ev.location}</p>
               </div>
               <div className="event-sessions">
                 {[...ev.sessions]
