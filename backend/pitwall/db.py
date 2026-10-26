@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from functools import lru_cache
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -25,7 +25,10 @@ def get_sessionmaker() -> sessionmaker[Session]:
 def init_db() -> None:
     from . import models  # noqa: F401  (registers tables)
 
-    Base.metadata.create_all(get_engine())
+    with get_engine().begin() as conn:
+        if conn.dialect.name == "postgresql":  # API and worker start together; let only one create tables
+            conn.execute(text("SELECT pg_advisory_xact_lock(7291)"))
+        Base.metadata.create_all(conn)
 
 
 def get_db() -> Iterator[Session]:

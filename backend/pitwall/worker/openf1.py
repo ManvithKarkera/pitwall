@@ -52,11 +52,26 @@ def get(endpoint: str, *filters: str, **params) -> list[dict]:
         except urllib.error.HTTPError as e:
             if e.code == 404:  # OpenF1 answers 404 "No results found."
                 return []
-            if e.code in (429, 500, 502, 503, 504) and attempt < 4:
+            if e.code == 429 and attempt < 4:  # rate limited: honour Retry-After, else back off 5/10/20/40 s
+                retry_after = e.headers.get("Retry-After", "") if e.headers else ""
+                time.sleep(float(retry_after) if retry_after.isdigit() else 5 * 2 ** attempt)
+                continue
+            if e.code in (500, 502, 503, 504) and attempt < 4:
                 time.sleep(2 ** attempt * 2)
                 continue
             raise
     raise RuntimeError("unreachable")
+
+
+def tyre_on_lap(stints: list[dict], driver_number: int, lap_number: int) -> tuple[str, int | None]:
+    """Compound and tyre age for a lap. OpenF1 sometimes sends stints without lap_start; those are skipped."""
+    for st in stints:
+        start = st.get("lap_start")
+        if st["driver_number"] != driver_number or start is None:
+            continue
+        if start <= lap_number <= (st.get("lap_end") or 999):
+            return st.get("compound") or "", (st.get("tyre_age_at_start") or 0) + lap_number - start
+    return "", None
 
 
 def parse_time(value: str) -> datetime:
@@ -118,12 +133,6 @@ def ingest_session(db: Session, session_key: int) -> RaceSession:
     laps = get("laps", session_key=session_key)
     stints = get("stints", session_key=session_key)
 
-    def tyre(driver_number: int, lap_number: int) -> tuple[str, int | None]:
-        for st in stints:
-            if st["driver_number"] == driver_number and st["lap_start"] <= lap_number <= (st["lap_end"] or 999):
-                return st.get("compound") or "", (st.get("tyre_age_at_start") or 0) + lap_number - st["lap_start"]
-        return "", None
-
     db.execute(delete(Lap).where(Lap.session_id == rs.id))
     db.execute(delete(SessionResult).where(SessionResult.session_id == rs.id))
 
@@ -134,7 +143,7 @@ def ingest_session(db: Session, session_key: int) -> RaceSession:
             continue
         if lap.get("lap_duration") and (n not in best or lap["lap_duration"] < best[n]["lap_duration"]):
             best[n] = lap
-        compound, life = tyre(n, lap["lap_number"])
+        compound, life = tyre_on_lap(stints, n, lap["lap_number"])
         db.add(Lap(
             session_id=rs.id,
             driver_code=drivers[n]["name_acronym"],

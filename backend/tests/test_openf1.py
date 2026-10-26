@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from pitwall.worker.openf1 import build_lap_telemetry
+from pitwall.worker.openf1 import build_lap_telemetry, tyre_on_lap
 
 START = datetime(2024, 8, 31, 15, 0, tzinfo=timezone.utc)
 
@@ -35,3 +35,14 @@ def test_too_little_data_is_rejected():
     car = samples(2, 4, lambda t, d: {"date": d, "speed": 100, "throttle": 0, "brake": 0, "n_gear": 3})
     with pytest.raises(ValueError):
         build_lap_telemetry(car, [], START, 2.0)
+
+
+def test_tyre_lookup_skips_stints_without_lap_start():
+    stints = [
+        {"driver_number": 4, "lap_start": None, "lap_end": None, "compound": "SOFT"},
+        {"driver_number": 4, "lap_start": 1, "lap_end": 10, "compound": "MEDIUM", "tyre_age_at_start": 2},
+        {"driver_number": 16, "lap_start": 1, "lap_end": None, "compound": "HARD"},
+    ]
+    assert tyre_on_lap(stints, 4, 5) == ("MEDIUM", 6)
+    assert tyre_on_lap(stints, 16, 30) == ("HARD", 29)
+    assert tyre_on_lap(stints, 4, 11) == ("", None)
