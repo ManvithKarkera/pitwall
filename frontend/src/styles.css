@@ -258,6 +258,17 @@ select:disabled { opacity: 0.5; }
 
 .stat-card { position: relative; background: var(--surface); border-radius: var(--radius); padding: 22px; box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
 .stat-card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 6px; background: var(--team); }
+/* driver photo: the headshot stands on a team-coloured disc, cropped at the shoulders */
+.driver-photo {
+  position: relative; width: 112px; height: 112px; margin: 6px 0 14px; border-radius: 50%; overflow: hidden;
+  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--team) 55%, #fff) 0 30%, var(--team) 72%);
+  box-shadow: 0 0 0 3px var(--surface), 0 0 0 4px var(--line);
+}
+.driver-photo img { position: absolute; left: 50%; bottom: -6%; width: 118%; transform: translateX(-50%); display: block; }
+.driver-photo span {
+  display: grid; place-items: center; width: 100%; height: 100%;
+  font-family: var(--display); font-weight: 800; font-size: 1.6rem; color: #fff;
+}
 .stat-card h3 { font-family: var(--display); font-weight: 800; font-size: 1.15rem; text-transform: uppercase; }
 .lap-time { font-family: var(--mono); font-size: 2.1rem; margin: 12px 0 18px; letter-spacing: -0.03em; }
 .stat-card dl { margin: 0; display: grid; gap: 10px; }

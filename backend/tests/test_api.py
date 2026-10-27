@@ -87,3 +87,29 @@ def test_full_comparison_flow_with_cache(client, monza, aws_env):
     assert third["status"] == "done"
     assert queued_jobs(aws_env) == []
     assert len(client.get("/api/comparisons", headers=h1).json()) == 2
+
+
+def test_comparison_detail_includes_driver_photos(client, monza):
+    from pitwall.models import Comparison, RaceSession, SessionResult, User
+
+    with get_sessionmaker()() as db:
+        # LEC's photo only exists on a later session: the lookup falls back to it.
+        ev = db.get(RaceSession, monza).event
+        later = RaceSession(external_key=9999, event_id=ev.id, code="R", name="Race")
+        db.add(later)
+        db.flush()
+        db.add(SessionResult(session_id=later.id, driver_code="LEC", driver_number="16", full_name="Charles Leclerc",
+                             team="Ferrari", team_color="#e8002d", headshot_url="https://img.example/lec.png"))
+        nor = db.query(SessionResult).filter_by(session_id=monza, driver_code="NOR").one()
+        nor.headshot_url = "https://img.example/nor.png"
+        user = User(email="x@example.com", display_name="X", password_hash="x")
+        db.add(user)
+        db.flush()
+        c = Comparison(user_id=user.id, session_id=monza, driver_a="NOR", lap_a=3, driver_b="LEC", lap_b=2, cache_key="k")
+        db.add(c)
+        db.commit()
+        cid = c.id
+
+    body = client.get(f"/api/comparisons/{cid}").json()
+    assert body["headshot_a"] == "https://img.example/nor.png"
+    assert body["headshot_b"] == "https://img.example/lec.png"

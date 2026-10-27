@@ -125,13 +125,28 @@ function TelemetryStack({ data }) {
   );
 }
 
-function StatCard({ side, data }) {
+// Driver photo from OpenF1 (hosted by formula1.com); initials in team colour when there is none or it fails.
+function DriverPhoto({ src, name, code, color }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className="driver-photo" style={{ "--team": color }}>
+      {src && !failed ? (
+        <img src={src} alt={name} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+      ) : (
+        <span aria-hidden>{code}</span>
+      )}
+    </div>
+  );
+}
+
+function StatCard({ side, data, photo }) {
   const { meta } = data;
   const s = data[side].stats;
   const key = side === "a" ? "a" : "b";
   const info = meta[`lap_${key}_info`] ?? {};
   return (
     <div className="stat-card" style={{ "--team": meta[`color_${key}`] }}>
+      <DriverPhoto src={photo} name={meta[`name_${key}`]} code={meta[`driver_${key}`]} color={meta[`color_${key}`]} />
       <p className="eyebrow">{meta[`team_${key}`]}</p>
       <h3>{meta[`name_${key}`]}</h3>
       <p className="lap-time">{fmtLap(info.lap_time_s ? info.lap_time_s * 1000 : s.lap_time_s * 1000)}</p>
@@ -213,7 +228,7 @@ export default function ComparisonPage() {
       </div>
 
       <div className="compare-grid">
-        <StatCard side="a" data={data} />
+        <StatCard side="a" data={data} photo={c.headshot_a} />
         <section className="panel track">
           <h2 className="section-title">Who was faster where</h2>
           <TrackMap data={data} />
@@ -222,7 +237,7 @@ export default function ComparisonPage() {
             <span style={{ "--c": meta.color_b }}>{meta.driver_b}</span>
           </p>
         </section>
-        <StatCard side="b" data={data} />
+        <StatCard side="b" data={data} photo={c.headshot_b} />
       </div>
 
       <section className="panel">

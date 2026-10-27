@@ -177,6 +177,7 @@ def ingest_session(db: Session, session_key: int) -> RaceSession:
             status=status,
             best_lap_ms=_ms(best[n]["lap_duration"]) if n in best else None,
             best_lap_number=best[n]["lap_number"] if n in best else None,
+            headshot_url=d.get("headshot_url") or None,
         ))
     db.commit()
     log.info("Ingested %s %s %s: %d drivers, %d laps", year, event.name, rs.code, len(drivers), len(laps))

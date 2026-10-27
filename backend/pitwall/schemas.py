@@ -59,6 +59,7 @@ class ResultOut(BaseModel):
     status: str
     best_lap_ms: int | None
     best_lap_number: int | None
+    headshot_url: str | None = None
 
 
 class SessionOut(BaseModel):
@@ -106,4 +107,7 @@ class ComparisonOut(BaseModel):
     # Relative URLs, served by CloudFront from S3 (or by the dev proxy locally)
     data_url: str | None
     report_url: str | None
+    # Driver photos: only filled on the detail endpoint, to keep the history list to one query
+    headshot_a: str | None = None
+    headshot_b: str | None = None
     chart_url: str | None

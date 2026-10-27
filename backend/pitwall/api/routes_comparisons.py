@@ -114,4 +114,18 @@ def detail(comparison_id: int, db: Session = Depends(get_db)):
     c = db.get(Comparison, comparison_id)
     if c is None:
         raise HTTPException(404, "Comparison not found")
-    return to_out(c)
+    out = to_out(c)
+    out.headshot_a = headshot_for(db, c.driver_a, c.session_id)
+    out.headshot_b = headshot_for(db, c.driver_b, c.session_id)
+    return out
+
+
+def headshot_for(db: Session, driver: str, session_id: int) -> str | None:
+    """The driver's photo from this session, else from their most recent session that has one."""
+    stmt = (
+        select(SessionResult.headshot_url)
+        .where(SessionResult.driver_code == driver, SessionResult.headshot_url.is_not(None), SessionResult.headshot_url != "")
+        .order_by((SessionResult.session_id == session_id).desc(), SessionResult.session_id.desc())
+        .limit(1)
+    )
+    return db.scalar(stmt)

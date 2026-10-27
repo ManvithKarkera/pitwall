@@ -66,6 +66,7 @@ class SessionResult(Base):
     status: Mapped[str] = mapped_column(String(40), default="")
     best_lap_ms: Mapped[int | None] = mapped_column(Integer)
     best_lap_number: Mapped[int | None] = mapped_column(Integer)
+    headshot_url: Mapped[str | None] = mapped_column(String(300))  # OpenF1 headshot, hosted by formula1.com
 
 
 class Lap(Base):
