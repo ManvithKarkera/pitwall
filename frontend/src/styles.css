@@ -138,6 +138,10 @@ main { flex: 1; padding-top: 40px; padding-bottom: 72px; }
 .link:hover { color: var(--text); }
 
 /* ---- home ------------------------------------------------------------------------- */
+/* home: the isometric car figure (frontend/hero/build-car.mjs) above the intro */
+.car-hero { margin: 28px 0 8px; }
+.car-hero--loading { aspect-ratio: 940 / 700; border-radius: var(--radius); background: var(--surface); }
+.car-hero .iso-figure { margin: 0; }
 .hero { padding: 8px 0 36px; max-width: 880px; }
 .lede { color: var(--muted); font-size: 1.15rem; max-width: 62ch; margin: 18px 0 0; }
 .tabs { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
@@ -258,7 +262,7 @@ select:disabled { opacity: 0.5; }
 
 /* driver card: a collectible-style card framed in the team colour.
    Cut corners (top-left notch, bottom-right bevel), photo on team-colour streaks,
-   car number top-left, name in wide caps, this lap's numbers on a tinted bar. */
+   car number top-left, name in wide caps, lap time, team on a tinted bar. */
 .driver-card {
   --ink: #17110f;
   position: relative; min-width: 0; padding: 7px;
@@ -300,16 +304,9 @@ select:disabled { opacity: 0.5; }
   overflow-wrap: anywhere;
 }
 .dc-time { margin: 10px 18px 16px; font-family: var(--mono); font-size: 1.6rem; letter-spacing: -.03em; color: #fff; }
-.dc-stats {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: auto 10px 0; padding: 12px 8px 10px;
-  border-radius: 10px 10px 0 0; background: color-mix(in srgb, var(--team) 55%, #fff); color: var(--ink); text-align: center;
-}
-.dc-stats div { min-width: 0; }
-.dc-stats dt { font-family: var(--mono); font-size: .72rem; letter-spacing: .08em; }
-.dc-stats dd { margin: 0; font-family: var(--display); font-weight: 800; font-size: 1.35rem; line-height: 1.1; }
 .dc-team {
-  margin: 0 10px 18px; padding: 8px 14px 14px; border-radius: 0 0 10px 10px;
-  background: color-mix(in srgb, var(--team) 55%, #fff); border-top: 1px solid rgba(23, 17, 15, .2);
+  margin: auto 10px 18px; padding: 12px 14px; border-radius: 10px;
+  background: color-mix(in srgb, var(--team) 55%, #fff);
   color: var(--ink); font-family: var(--display); font-weight: 700; font-size: .78rem; text-transform: uppercase;
 }
 

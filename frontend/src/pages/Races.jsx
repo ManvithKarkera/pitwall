@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, fmtDate } from "../api.js";
+import CarHero from "../components/CarHero.jsx";
 
 const SESSION_ORDER = { SQ: 0, S: 1, Q: 2, R: 3 };
 
@@ -27,6 +28,7 @@ export default function Races() {
 
   return (
     <>
+      <CarHero />
       <section className="hero">
         <h1>Where was the time won?</h1>
         <p className="lede">

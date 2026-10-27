@@ -125,14 +125,21 @@ function TelemetryStack({ data }) {
   );
 }
 
+// OpenF1 links formula1.com's 93 px "1col" thumbnail; the same image is served at larger
+// sizes by swapping the transform. 6col is 658 px, sharp on the card at 2x.
+const sharpHeadshot = (url) => url.replace(/\.transform\/[\w-]+\//, ".transform/6col/");
+
 // Driver photo from OpenF1 (hosted by formula1.com); the driver code when there is none or it fails.
 function DriverPhoto({ src, name, code }) {
   const [failed, setFailed] = useState(false);
   if (!src || failed) return <span className="dc-photo dc-photo--empty" aria-hidden>{code}</span>;
-  return <img className="dc-photo" src={src} alt={name} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
+  return (
+    <img className="dc-photo" src={sharpHeadshot(src)} alt={name} loading="lazy" referrerPolicy="no-referrer"
+      onError={() => setFailed(true)} />
+  );
 }
 
-// A collectible-style driver card: car number, photo, name, this lap's stats.
+// A collectible-style driver card: car number, photo, name, lap time.
 function StatCard({ side, data, photo, number }) {
   const { meta } = data;
   const s = data[side].stats;
@@ -141,12 +148,6 @@ function StatCard({ side, data, photo, number }) {
   const name = meta[`name_${key}`] ?? "";
   const [first, ...rest] = name.split(" ");
   const team = meta[`team_${key}`];
-  const stats = [
-    ["TOP", Math.round(s.top_speed), "Top speed, km/h"],
-    ["THR", Math.round(s.full_throttle_pct), "Full throttle, % of the lap"],
-    ["SEC", s.minisectors_won, `Mini-sectors won, of ${data.minisectors.length}`],
-    ["AGE", info.tyre_life ?? "–", "Tyre age, laps"],
-  ];
   return (
     <article className="driver-card" style={{ "--team": meta[`color_${key}`] }}>
       <div className="dc-inner">
@@ -168,14 +169,6 @@ function StatCard({ side, data, photo, number }) {
           <span>{rest.join(" ")}</span>
         </h3>
         <p className="dc-time">{fmtLap(info.lap_time_s ? info.lap_time_s * 1000 : s.lap_time_s * 1000)}</p>
-        <dl className="dc-stats">
-          {stats.map(([label, value, title]) => (
-            <div key={label} title={title}>
-              <dt>{label}</dt>
-              <dd>{value}</dd>
-            </div>
-          ))}
-        </dl>
         <p className="dc-team">{team}</p>
       </div>
     </article>
