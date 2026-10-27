@@ -106,9 +106,9 @@ export default function Standings({ kind }) {
                 <tr>
                   <th className="num">Pos</th>
                   <th>{copy.who}</th>
-                  <th className="num">Wins</th>
-                  <th className="num">Podiums</th>
-                  <th className="num">Gap</th>
+                  <th className="num st-opt">Wins</th>
+                  <th className="num st-opt">Podiums</th>
+                  <th className="num st-opt">Gap</th>
                   <th className="num">Points</th>
                 </tr>
               </thead>
@@ -137,9 +137,9 @@ export default function Standings({ kind }) {
                         )}
                       </div>
                     </td>
-                    <td className="num">{row.wins}</td>
-                    <td className="num">{row.podiums}</td>
-                    <td className="num muted">{row.gap ? `−${fmtPoints(row.gap)}` : "—"}</td>
+                    <td className="num st-opt">{row.wins}</td>
+                    <td className="num st-opt">{row.podiums}</td>
+                    <td className="num muted st-opt">{row.gap ? `−${fmtPoints(row.gap)}` : "—"}</td>
                     <td className="num st-points">{fmtPoints(row.points)}</td>
                   </tr>
                 ))}

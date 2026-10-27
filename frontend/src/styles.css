@@ -183,6 +183,7 @@ main { flex: 1; padding-top: 40px; padding-bottom: 72px; }
 .st-photo { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; object-position: top; background: color-mix(in srgb, var(--team) 25%, var(--surface-2)); flex: none; }
 .st-photo--empty { display: grid; place-items: center; font-family: var(--mono); font-size: .7rem; color: var(--muted); }
 .st-note { font-size: .8rem; margin: 10px 10px 0; }
+@media (max-width: 560px) { .st-table .st-opt { display: none; } .st-table td, .st-table th { padding-left: 6px; padding-right: 6px; } }
 .hero { padding: 8px 0 36px; max-width: 880px; }
 .lede { color: var(--muted); font-size: 1.15rem; max-width: 62ch; margin: 18px 0 0; }
 .tabs { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
