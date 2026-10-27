@@ -16,7 +16,7 @@ import numpy as np
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from ..models import Event, Lap, RaceSession, SessionResult, utcnow
+from ..models import Event, Lap, RaceSession, SessionResult, Standing, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -181,7 +181,27 @@ def ingest_session(db: Session, session_key: int) -> RaceSession:
         ))
     db.commit()
     log.info("Ingested %s %s %s: %d drivers, %d laps", year, event.name, rs.code, len(drivers), len(laps))
+    if rs.code == "R":
+        ingest_standings(db, rs)
     return rs
+
+
+def ingest_standings(db: Session, rs: RaceSession) -> int:
+    """Store the official drivers' and constructors' tables as they stood after this race."""
+    drivers = get("championship_drivers", session_key=rs.external_key)
+    teams = get("championship_teams", session_key=rs.external_key)
+    db.execute(delete(Standing).where(Standing.session_id == rs.id))
+    for kind, rows, key in (("driver", drivers, "driver_number"), ("team", teams, "team_name")):
+        for row in rows:
+            if row.get(key) is None:
+                continue
+            db.add(Standing(
+                session_id=rs.id, kind=kind, entry=str(row[key]),
+                position=row.get("position_current"), points=float(row.get("points_current") or 0),
+            ))
+    db.commit()
+    log.info("Standings after %s %s: %d drivers, %d teams", rs.event.year, rs.event.name, len(drivers), len(teams))
+    return len(drivers) + len(teams)
 
 
 def _ms(seconds: float | None) -> int | None:

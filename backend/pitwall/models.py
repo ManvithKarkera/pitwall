@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -67,6 +67,23 @@ class SessionResult(Base):
     best_lap_ms: Mapped[int | None] = mapped_column(Integer)
     best_lap_number: Mapped[int | None] = mapped_column(Integer)
     headshot_url: Mapped[str | None] = mapped_column(String(300))  # OpenF1 headshot, hosted by formula1.com
+
+
+class Standing(Base):
+    """Official championship table after one race (OpenF1 championship_drivers / championship_teams).
+
+    kind is "driver" (entry = driver number) or "team" (entry = team name).
+    """
+
+    __tablename__ = "standings"
+    __table_args__ = (UniqueConstraint("session_id", "kind", "entry"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("sessions.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(6))
+    entry: Mapped[str] = mapped_column(String(80))
+    position: Mapped[int | None] = mapped_column(Integer)
+    points: Mapped[float] = mapped_column(Float, default=0.0)
 
 
 class Lap(Base):

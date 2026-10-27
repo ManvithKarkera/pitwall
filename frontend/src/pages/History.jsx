@@ -22,7 +22,7 @@ export default function History() {
       {error && <p className="error">{error}</p>}
       {items && items.length === 0 && (
         <p className="empty">
-          Nothing here yet. <Link to="/">Pick a session</Link> and compare two laps.
+          Nothing here yet. <Link to="/races">Pick a session</Link> and compare two laps.
         </p>
       )}
       {items && items.length > 0 && (

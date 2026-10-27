@@ -9,7 +9,7 @@ from .. import aws
 from ..config import get_settings
 from ..db import get_engine, init_db
 from ..logging_setup import setup_logging
-from . import routes_auth, routes_comparisons, routes_races
+from . import routes_auth, routes_comparisons, routes_races, routes_standings
 
 setup_logging("api")
 log = logging.getLogger("pitwall.api")
@@ -25,6 +25,7 @@ app = FastAPI(title="PitWall API", lifespan=lifespan, docs_url="/api/docs", open
 app.include_router(routes_auth.router)
 app.include_router(routes_races.router)
 app.include_router(routes_comparisons.router)
+app.include_router(routes_standings.router)
 
 
 @app.middleware("http")

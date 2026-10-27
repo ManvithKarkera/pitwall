@@ -99,7 +99,7 @@ export default function SessionPage() {
 
   return (
     <>
-      <Link to="/" className="back">← All races</Link>
+      <Link to="/races" className="back">← All races</Link>
       <header className="page-head">
         <p className="eyebrow">
           {ev.year} · Round {ev.round} · {fmtDate(session.starts_at ?? ev.event_date)}

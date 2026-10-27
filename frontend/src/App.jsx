@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { api } from "./api.js";
 import { useAuth } from "./auth.jsx";
+import Home from "./pages/Home.jsx";
 import Races from "./pages/Races.jsx";
+import Standings from "./pages/Standings.jsx";
 import SessionPage from "./pages/SessionPage.jsx";
 import ComparisonPage from "./pages/ComparisonPage.jsx";
 import History from "./pages/History.jsx";
@@ -38,7 +40,10 @@ export default function App() {
             PitWall
           </Link>
           <nav>
-            <NavLink to="/" end>Races</NavLink>
+            <NavLink to="/" end>Home</NavLink>
+            <NavLink to="/races">Compare</NavLink>
+            <NavLink to="/standings/drivers">Drivers</NavLink>
+            <NavLink to="/standings/constructors">Constructors</NavLink>
             {user && <NavLink to="/history">My comparisons</NavLink>}
           </nav>
           <div className="topbar-user">
@@ -56,7 +61,10 @@ export default function App() {
       </header>
       <main className="wrap">
         <Routes>
-          <Route path="/" element={<Races />} />
+          <Route path="/" element={<Home />} />
+          <Route path="/races" element={<Races />} />
+          <Route path="/standings/drivers" element={<Standings kind="drivers" />} />
+          <Route path="/standings/constructors" element={<Standings kind="constructors" />} />
           <Route path="/sessions/:id" element={<SessionPage />} />
           <Route path="/comparisons/:id" element={<ComparisonPage />} />
           <Route path="/history" element={<History />} />

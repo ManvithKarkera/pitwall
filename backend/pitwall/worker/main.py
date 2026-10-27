@@ -3,6 +3,7 @@
 Job messages:
     {"type": "compare", "cache_key": "<sha256>"}
     {"type": "ingest_session", "session_key": 9586}   (OpenF1 session key; from seed.py or the scheduler Lambda)
+    {"type": "standings", "session_key": 9590}        (refresh the championship tables after a stored race; seed.py --standings)
 """
 
 import gc
@@ -18,7 +19,7 @@ from .. import aws
 from ..config import get_settings
 from ..db import get_sessionmaker, init_db
 from ..logging_setup import setup_logging
-from ..models import Comparison, Lap, SessionResult, User, utcnow
+from ..models import Comparison, Lap, RaceSession, SessionResult, User, utcnow
 from . import openf1, report
 from .analysis import compare_laps
 
@@ -154,6 +155,12 @@ def handle(job: dict, attempt: int) -> None:
                 run_comparison(db, job["cache_key"])
             elif job["type"] == "ingest_session":
                 openf1.ingest_session(db, int(job["session_key"]))
+            elif job["type"] == "standings":
+                rs = db.scalar(select(RaceSession).where(RaceSession.external_key == int(job["session_key"])))
+                if rs is None:
+                    openf1.ingest_session(db, int(job["session_key"]))  # not stored yet: ingesting it also fetches standings
+                else:
+                    openf1.ingest_standings(db, rs)
             else:
                 log.warning("Unknown job type %r, dropping", job.get("type"))
         except Exception as exc:

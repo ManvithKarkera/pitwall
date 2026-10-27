@@ -4,6 +4,7 @@
 #
 #   ./scripts/seed.sh 2024             # Q and R of every 2024 round
 #   ./scripts/seed.sh 2025 Q,R,S,SQ    # include sprint sessions
+#   ./scripts/seed.sh 2025 standings   # only refresh championship standings for the year's stored races
 set -euo pipefail
 export AWS_REGION="${AWS_REGION:-ap-south-1}" AWS_DEFAULT_REGION="${AWS_REGION:-ap-south-1}"
 STACK="${PROJECT:-pitwall}"
@@ -18,7 +19,8 @@ wait_for_command() { # command-id instance-id: poll until Run Command finishes
 }
 INSTANCE=$(aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" --output text)
 
-CMD="cd /opt/pitwall/current && set -a && . /etc/pitwall.env && set +a && sudo -E -u pitwall /opt/pitwall/venv/bin/python -m pitwall.seed --year $YEAR --codes $CODES"
+if [ "$CODES" = standings ]; then ARGS="--standings"; else ARGS="--codes $CODES"; fi
+CMD="cd /opt/pitwall/current && set -a && . /etc/pitwall.env && set +a && sudo -E -u pitwall /opt/pitwall/venv/bin/python -m pitwall.seed --year $YEAR $ARGS"
 ID=$(aws ssm send-command --instance-ids "$INSTANCE" --document-name AWS-RunShellScript \
   --parameters "commands=[\"$CMD\"]" --query Command.CommandId --output text)
 wait_for_command "$ID" "$INSTANCE"
