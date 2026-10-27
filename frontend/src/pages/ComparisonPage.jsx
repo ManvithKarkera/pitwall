@@ -125,38 +125,60 @@ function TelemetryStack({ data }) {
   );
 }
 
-// Driver photo from OpenF1 (hosted by formula1.com); initials in team colour when there is none or it fails.
-function DriverPhoto({ src, name, code, color }) {
+// Driver photo from OpenF1 (hosted by formula1.com); the driver code when there is none or it fails.
+function DriverPhoto({ src, name, code }) {
   const [failed, setFailed] = useState(false);
-  return (
-    <div className="driver-photo" style={{ "--team": color }}>
-      {src && !failed ? (
-        <img src={src} alt={name} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
-      ) : (
-        <span aria-hidden>{code}</span>
-      )}
-    </div>
-  );
+  if (!src || failed) return <span className="dc-photo dc-photo--empty" aria-hidden>{code}</span>;
+  return <img className="dc-photo" src={src} alt={name} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
 }
 
-function StatCard({ side, data, photo }) {
+// A collectible-style driver card: car number, photo, name, this lap's stats.
+function StatCard({ side, data, photo, number }) {
   const { meta } = data;
   const s = data[side].stats;
   const key = side === "a" ? "a" : "b";
   const info = meta[`lap_${key}_info`] ?? {};
+  const name = meta[`name_${key}`] ?? "";
+  const [first, ...rest] = name.split(" ");
+  const team = meta[`team_${key}`];
+  const stats = [
+    ["TOP", Math.round(s.top_speed), "Top speed, km/h"],
+    ["THR", Math.round(s.full_throttle_pct), "Full throttle, % of the lap"],
+    ["SEC", s.minisectors_won, `Mini-sectors won, of ${data.minisectors.length}`],
+    ["AGE", info.tyre_life ?? "–", "Tyre age, laps"],
+  ];
   return (
-    <div className="stat-card" style={{ "--team": meta[`color_${key}`] }}>
-      <DriverPhoto src={photo} name={meta[`name_${key}`]} code={meta[`driver_${key}`]} color={meta[`color_${key}`]} />
-      <p className="eyebrow">{meta[`team_${key}`]}</p>
-      <h3>{meta[`name_${key}`]}</h3>
-      <p className="lap-time">{fmtLap(info.lap_time_s ? info.lap_time_s * 1000 : s.lap_time_s * 1000)}</p>
-      <dl>
-        <div><dt>Lap</dt><dd>{meta[`lap_${key}`]}{info.compound ? ` · ${info.compound.toLowerCase()}` : ""}</dd></div>
-        <div><dt>Top speed</dt><dd>{s.top_speed} km/h</dd></div>
-        <div><dt>Full throttle</dt><dd>{s.full_throttle_pct}%</dd></div>
-        <div><dt>Mini-sectors</dt><dd>{s.minisectors_won} / {data.minisectors.length}</dd></div>
-      </dl>
-    </div>
+    <article className="driver-card" style={{ "--team": meta[`color_${key}`] }}>
+      <div className="dc-inner">
+        <div className="dc-hero">
+          {number && (
+            <p className="dc-number">
+              <span>No.</span>
+              <strong>{number}</strong>
+            </p>
+          )}
+          <DriverPhoto src={photo} name={name} code={meta[`driver_${key}`]} />
+          <span className="dc-side" aria-hidden>{number ? `#${number} — ` : ""}{team}</span>
+        </div>
+        <p className="dc-tag">
+          Lap {meta[`lap_${key}`]}{info.compound ? ` · ${info.compound.toLowerCase()}` : ""}
+        </p>
+        <h3 className="dc-name">
+          <span>{first}</span>
+          <span>{rest.join(" ")}</span>
+        </h3>
+        <p className="dc-time">{fmtLap(info.lap_time_s ? info.lap_time_s * 1000 : s.lap_time_s * 1000)}</p>
+        <dl className="dc-stats">
+          {stats.map(([label, value, title]) => (
+            <div key={label} title={title}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="dc-team">{team}</p>
+      </div>
+    </article>
   );
 }
 
@@ -228,7 +250,7 @@ export default function ComparisonPage() {
       </div>
 
       <div className="compare-grid">
-        <StatCard side="a" data={data} photo={c.headshot_a} />
+        <StatCard side="a" data={data} photo={c.headshot_a} number={c.number_a} />
         <section className="panel track">
           <h2 className="section-title">Who was faster where</h2>
           <TrackMap data={data} />
@@ -237,7 +259,7 @@ export default function ComparisonPage() {
             <span style={{ "--c": meta.color_b }}>{meta.driver_b}</span>
           </p>
         </section>
-        <StatCard side="b" data={data} photo={c.headshot_b} />
+        <StatCard side="b" data={data} photo={c.headshot_b} number={c.number_b} />
       </div>
 
       <section className="panel">

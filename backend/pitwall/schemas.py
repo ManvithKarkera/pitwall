@@ -110,4 +110,6 @@ class ComparisonOut(BaseModel):
     # Driver photos: only filled on the detail endpoint, to keep the history list to one query
     headshot_a: str | None = None
     headshot_b: str | None = None
+    number_a: str | None = None
+    number_b: str | None = None
     chart_url: str | None

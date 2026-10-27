@@ -113,3 +113,4 @@ def test_comparison_detail_includes_driver_photos(client, monza):
     body = client.get(f"/api/comparisons/{cid}").json()
     assert body["headshot_a"] == "https://img.example/nor.png"
     assert body["headshot_b"] == "https://img.example/lec.png"
+    assert (body["number_a"], body["number_b"]) == ("1", "1")

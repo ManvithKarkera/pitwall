@@ -256,25 +256,62 @@ select:disabled { opacity: 0.5; }
 .legend { display: flex; gap: 18px; justify-content: center; margin: 4px 0 0; font-family: var(--mono); font-size: 0.85rem; }
 .legend span::before { content: ""; display: inline-block; width: 18px; height: 5px; border-radius: 3px; background: var(--c); margin-right: 8px; vertical-align: 3px; }
 
-.stat-card { position: relative; background: var(--surface); border-radius: var(--radius); padding: 22px; box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
-.stat-card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 6px; background: var(--team); }
-/* driver photo: the headshot stands on a team-coloured disc, cropped at the shoulders */
-.driver-photo {
-  position: relative; width: 112px; height: 112px; margin: 6px 0 14px; border-radius: 50%; overflow: hidden;
-  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--team) 55%, #fff) 0 30%, var(--team) 72%);
-  box-shadow: 0 0 0 3px var(--surface), 0 0 0 4px var(--line);
+/* driver card: a collectible-style card framed in the team colour.
+   Cut corners (top-left notch, bottom-right bevel), photo on team-colour streaks,
+   car number top-left, name in wide caps, this lap's numbers on a tinted bar. */
+.driver-card {
+  --ink: #17110f;
+  position: relative; min-width: 0; padding: 7px;
+  background: var(--team);
+  clip-path: polygon(0 26px, 30% 26px, calc(30% + 26px) 0, 100% 0, 100% calc(100% - 30px), calc(100% - 30px) 100%, 0 100%);
 }
-.driver-photo img { position: absolute; left: 50%; bottom: -6%; width: 118%; transform: translateX(-50%); display: block; }
-.driver-photo span {
-  display: grid; place-items: center; width: 100%; height: 100%;
-  font-family: var(--display); font-weight: 800; font-size: 1.6rem; color: #fff;
+.dc-inner {
+  position: relative; height: 100%; display: flex; flex-direction: column;
+  color: #f3ece4; background: var(--ink);
+  clip-path: polygon(0 22px, calc(30% - 3px) 22px, calc(30% + 20px) 0, 100% 0, 100% calc(100% - 26px), calc(100% - 26px) 100%, 0 100%);
 }
-.stat-card h3 { font-family: var(--display); font-weight: 800; font-size: 1.15rem; text-transform: uppercase; }
-.lap-time { font-family: var(--mono); font-size: 2.1rem; margin: 12px 0 18px; letter-spacing: -0.03em; }
-.stat-card dl { margin: 0; display: grid; gap: 10px; }
-.stat-card dl div { display: flex; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 10px; }
-.stat-card dt { color: var(--muted); }
-.stat-card dd { margin: 0; font-family: var(--mono); }
+.dc-hero {
+  position: relative; height: 230px; overflow: hidden;
+  background:
+    repeating-linear-gradient(118deg, rgba(255, 255, 255, .07) 0 3px, transparent 3px 22px),
+    radial-gradient(120% 90% at 85% 15%, color-mix(in srgb, var(--team) 70%, #fff) 0%, transparent 55%),
+    linear-gradient(160deg, var(--team), color-mix(in srgb, var(--team) 45%, #000));
+}
+.dc-number { position: absolute; left: 18px; top: 42px; margin: 0; display: grid; z-index: 1; color: rgba(255, 255, 255, .92); }
+.dc-number span { font-family: var(--mono); font-size: .8rem; letter-spacing: .12em; text-transform: uppercase; padding-left: 4px; }
+.dc-number strong { font-family: var(--display); font-weight: 800; font-size: 4rem; line-height: .9; letter-spacing: -.04em; }
+.dc-photo { position: absolute; right: 6px; bottom: 0; height: 104%; width: auto; max-width: 72%; object-fit: contain; object-position: bottom; }
+.dc-photo--empty {
+  right: 22px; bottom: 26px; height: auto; display: grid; place-items: center; width: 130px; aspect-ratio: 1; border-radius: 50%;
+  font-family: var(--display); font-weight: 800; font-size: 2rem; color: #fff; background: rgba(0, 0, 0, .18);
+}
+.dc-side {
+  position: absolute; right: 8px; top: 34px; writing-mode: vertical-rl;
+  font-family: var(--mono); font-size: .68rem; letter-spacing: .14em; text-transform: uppercase; color: rgba(255, 255, 255, .85);
+}
+.dc-tag {
+  align-self: flex-start; margin: -16px 0 0 16px; position: relative; z-index: 1;
+  padding: 5px 12px; border-radius: 6px; background: #f3ece4; color: var(--ink);
+  font-family: var(--mono); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em;
+}
+.dc-name {
+  display: grid; margin: 16px 18px 0;
+  font-family: var(--display); font-weight: 800; font-size: 1.45rem; line-height: 1; text-transform: uppercase; letter-spacing: -.02em;
+  overflow-wrap: anywhere;
+}
+.dc-time { margin: 10px 18px 16px; font-family: var(--mono); font-size: 1.6rem; letter-spacing: -.03em; color: #fff; }
+.dc-stats {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: auto 10px 0; padding: 12px 8px 10px;
+  border-radius: 10px 10px 0 0; background: color-mix(in srgb, var(--team) 55%, #fff); color: var(--ink); text-align: center;
+}
+.dc-stats div { min-width: 0; }
+.dc-stats dt { font-family: var(--mono); font-size: .72rem; letter-spacing: .08em; }
+.dc-stats dd { margin: 0; font-family: var(--display); font-weight: 800; font-size: 1.35rem; line-height: 1.1; }
+.dc-team {
+  margin: 0 10px 18px; padding: 8px 14px 14px; border-radius: 0 0 10px 10px;
+  background: color-mix(in srgb, var(--team) 55%, #fff); border-top: 1px solid rgba(23, 17, 15, .2);
+  color: var(--ink); font-family: var(--display); font-weight: 700; font-size: .78rem; text-transform: uppercase;
+}
 
 /* ---- history ------------------------------------------------------------------------- */
 .history { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }

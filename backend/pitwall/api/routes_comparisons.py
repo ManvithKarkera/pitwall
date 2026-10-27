@@ -117,7 +117,15 @@ def detail(comparison_id: int, db: Session = Depends(get_db)):
     out = to_out(c)
     out.headshot_a = headshot_for(db, c.driver_a, c.session_id)
     out.headshot_b = headshot_for(db, c.driver_b, c.session_id)
+    out.number_a = number_for(db, c.driver_a, c.session_id)
+    out.number_b = number_for(db, c.driver_b, c.session_id)
     return out
+
+
+def number_for(db: Session, driver: str, session_id: int) -> str | None:
+    """The car number the driver raced with in this session."""
+    stmt = select(SessionResult.driver_number).where(SessionResult.session_id == session_id, SessionResult.driver_code == driver)
+    return db.scalar(stmt)
 
 
 def headshot_for(db: Session, driver: str, session_id: int) -> str | None:
