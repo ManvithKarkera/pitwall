@@ -9,3 +9,6 @@ frontend/dist/
 .local/
 .local/
 .build/
+.impeccable/
+.superpowers/
+docs/superpowers/
