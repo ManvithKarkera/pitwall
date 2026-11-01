@@ -11,6 +11,10 @@ Each comparison also produces a PDF report you can download or share.
 
 Telemetry analysis is too heavy to run inside a web request, so it runs as a background job. The API queues the work on **SQS**. A worker on **EC2** processes the lap data, writes the charts and PDF to **S3**, and emails the user through **SNS**. **CloudFront** serves the site and the reports. A weekly **Lambda** picks up new race weekends automatically.
 
+![Norris vs Leclerc, 2024 Italian GP qualifying](docs/screenshots/comparison.png)
+
+> **Status:** deployed on AWS (ap-south-1) in October 2026, then torn down to control cost. `./scripts/deploy.sh` recreates the whole stack in about 15 minutes, and `./scripts/local-up.sh` runs the full pipeline on a laptop with no AWS account (see [Run it locally](#run-it-locally)).
+
 ![Architecture](docs/architecture.png)
 
 ## Cloud services and why each one is there
@@ -31,7 +35,6 @@ Telemetry analysis is too heavy to run inside a web request, so it runs as a bac
 | Cost | **AWS Budgets** | $5/month budget that emails at 80% of actual spend and 100% of forecast spend. |
 | IaC | **AWS CloudFormation** | `infra/pitwall.yaml` creates every resource above. `scripts/teardown.sh` removes them all. |
 
-The project covers the required areas: Compute, Networking, Database, Storage, Security/IAM and Monitoring. Beyond the mandatory services it adds these capabilities: **SQS, SNS, Lambda + EventBridge, CloudFront and Infrastructure as Code**.
 
 ## Repository layout
 
@@ -45,10 +48,12 @@ frontend/           React + Vite + Plotly
 lambda/             weekly session scheduler
 infra/pitwall.yaml  CloudFormation template for the whole stack
 scripts/            local-up, deploy, seed, start/stop, teardown
-docs/               architecture diagram, cost estimate
+docs/               architecture diagram, screenshots, cost estimate
 ```
 
 ## How a comparison works
+
+![Session page with the lap picker](docs/screenshots/session.png)
 
 1. In the browser you pick a session and two laps. The frontend calls `POST /api/comparisons` (CloudFront forwards it to EC2).
 2. The API works out "fastest lap" to an actual lap number and builds a cache key from session + drivers + laps.
@@ -104,25 +109,8 @@ After that, confirm the "AWS Notification - Subscription Confirmation" email so 
 ### Keep it cheap
 
 - `./scripts/stop.sh` stops EC2 and RDS when you're not working on it, and `./scripts/start.sh` brings them back. AWS restarts a stopped RDS instance after 7 days on its own.
-- `./scripts/teardown.sh` deletes everything once the project has been graded.
+- `./scripts/teardown.sh` deletes everything.
 
 See [docs/cost.md](docs/cost.md) for the estimate.
-
-## Evidence checklist for the submission
-
-Screenshots worth taking after deploying:
-- **CloudFormation**: stack `pitwall` in CREATE_COMPLETE, plus its Resources tab
-- **VPC**: resource map showing subnets, route tables, IGW and S3 endpoint; inbound rules of both security groups
-- **EC2**: the running instance (IAM role, no key pair); a Session Manager shell running `systemctl status pitwall-api pitwall-worker`
-- **RDS**: the instance (Single-AZ, not publicly accessible, private subnet group)
-- **S3**: bucket with `frontend/ reports/ telemetry/ releases/`; Block Public Access all on
-- **CloudFront**: the three behaviours (`/api/*`, `/reports/*`, default)
-- **SQS**: queue + DLQ with the redrive policy; **SNS**: both topics and a confirmed subscription with its filter policy
-- **Lambda**: `session-scheduler` with its EventBridge trigger, plus one test invoke's log output
-- **Parameter Store**: the `/pitwall/` parameters, showing two SecureStrings
-- **IAM**: the `pitwall-ec2-role` policy JSON
-- **CloudWatch**: the `pitwall` dashboard, the log groups, and the 5 alarms (temporarily stop the worker to make `queue-stuck` fire)
-- **Budgets**: the `pitwall-monthly` budget
-- **The app**: home, session page, a finished comparison, the PDF, the "report ready" email
 
 Data: [OpenF1](https://openf1.org), unofficial, 2023 season onward. PitWall is not associated with Formula 1.
