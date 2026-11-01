@@ -159,7 +159,7 @@ function StatCard({ side, data, photo, number }) {
             </p>
           )}
           <DriverPhoto src={photo} name={name} code={meta[`driver_${key}`]} />
-          <span className="dc-side" aria-hidden>{number ? `#${number} — ` : ""}{team}</span>
+          <span className="dc-side" aria-hidden>{number ? `#${number} · ` : ""}{team}</span>
         </div>
         <p className="dc-tag">
           Lap {meta[`lap_${key}`]}{info.compound ? ` · ${info.compound.toLowerCase()}` : ""}

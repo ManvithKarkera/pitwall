@@ -31,8 +31,8 @@ export default function Races() {
         <p className="eyebrow">Compare lap times</p>
         <h1>Pick a session</h1>
         <p className="lede">
-          Pick a session, choose two drivers, and PitWall overlays their laps — speed, throttle, braking, gears and the
-          running gap — on a track map of who was faster where.
+          Pick a session, choose two drivers, and PitWall overlays their laps (speed, throttle, braking, gears and the
+          running gap) on a track map of who was faster where.
         </p>
       </section>
 

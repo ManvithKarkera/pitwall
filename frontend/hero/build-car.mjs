@@ -1,13 +1,13 @@
 // PitWall hero: an isometric line drawing of an F1 car on a display plinth, built with the
-// anatomy skill's kit (~/.claude/skills/anatomy). Hover the car for a labelled cutaway; hover the rear wing for DRS.
+// Anatomy isometric kit (MIT, vendored in ./vendor/anatomy-kit). Hover the car for a labelled cutaway; hover the rear wing for DRS.
 //   node frontend/hero/build-car.mjs                     -> frontend/src/hero/carFigure.js (used by the site)
 //   node frontend/hero/build-car.mjs preview.html        -> a standalone page for checking the drawing
 import { writeFileSync } from "node:fs";
-import * as k from "/home/illusive/.claude/skills/anatomy/kit/iso-kit.mjs";
-import * as G from "/home/illusive/.claude/skills/anatomy/kit/lathe.mjs";
-import { tubePieces, tubeSvg } from "/home/illusive/.claude/skills/anatomy/kit/tube.mjs";
-import * as A from "/home/illusive/.claude/skills/anatomy/kit/audit.mjs";
-import { kitScript } from "/home/illusive/.claude/skills/anatomy/scripts/inline-kit.mjs";
+import * as k from "./vendor/anatomy-kit/kit/iso-kit.mjs";
+import * as G from "./vendor/anatomy-kit/kit/lathe.mjs";
+import { tubePieces, tubeSvg } from "./vendor/anatomy-kit/kit/tube.mjs";
+import * as A from "./vendor/anatomy-kit/kit/audit.mjs";
+import { kitScript } from "./vendor/anatomy-kit/scripts/inline-kit.mjs";
 
 const PAGE = process.argv.find((a) => a.endsWith(".html"));
 const MODULE = new URL("../src/hero/carFigure.js", import.meta.url);
