@@ -11,7 +11,7 @@ Each comparison also produces a PDF report you can download or share.
 
 Telemetry analysis is too heavy to run inside a web request, so it runs as a background job. The API queues the work on **SQS**. A worker on **EC2** processes the lap data, writes the charts and PDF to **S3**, and emails the user through **SNS**. **CloudFront** serves the site and the reports. A weekly **Lambda** picks up new race weekends automatically.
 
-![Norris vs Leclerc, 2024 Italian GP qualifying](docs/screenshots/comparison.png)
+<img src="docs/screenshots/comparison.jpg" alt="Russell vs Hamilton lap comparison" width="49%"> <img src="docs/screenshots/home.jpg" alt="PitWall home page" width="49%">
 
 > **Status:** deployed on AWS (ap-south-1) in October 2026, then torn down to control cost. `./scripts/deploy.sh` recreates the whole stack in about 15 minutes, and `./scripts/local-up.sh` runs the full pipeline on a laptop with no AWS account (see [Run it locally](#run-it-locally)).
 
@@ -52,8 +52,6 @@ docs/               architecture diagram, screenshots, cost estimate
 ```
 
 ## How a comparison works
-
-![Session page with the lap picker](docs/screenshots/session.png)
 
 1. In the browser you pick a session and two laps. The frontend calls `POST /api/comparisons` (CloudFront forwards it to EC2).
 2. The API works out "fastest lap" to an actual lap number and builds a cache key from session + drivers + laps.
